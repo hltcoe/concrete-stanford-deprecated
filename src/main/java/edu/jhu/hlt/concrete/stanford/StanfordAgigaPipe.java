@@ -36,4 +36,36 @@ public class StanfordAgigaPipe {
 			}
 		}	
 	}
+	
+	private void List<Communication> readInputCommunications(String path) {
+        List<Communication> communications = new ArrayList<Communication>();
+		
+        try {
+			BufferedInputStream input = new BufferedInputStream(new FileInputStream(path));
+	        
+			while (input.available() != 0) {
+	        	communications.add(Communication.parseDelimitedFrom(input));
+	        }
+			
+	        input.close();
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+		
+		return communications;
+	}
+	
+	private void writeOutputCommunications(String path, List<Communication> outputCommunications) {
+		try {
+			BufferedOutputStream output = new BufferedOutputStream(new FileOutputStream(path));
+			
+			for (Communication comm : outputCommunications)
+				comm.writeDelimitedTo(output);
+				
+			output.close();
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+	
+	}
 }
