@@ -1,6 +1,8 @@
 package edu.jhu.hlt.concrete.stanford;
 
+import java.io.*;
 import java.util.List;
+import java.util.ArrayList;
 import edu.jhu.hlt.concrete.Concrete.*;
 import edu.jhu.hlt.concrete.Concrete.Sentence;
 
@@ -37,7 +39,7 @@ public class StanfordAgigaPipe {
 		}	
 	}
 	
-	private void List<Communication> readInputCommunications(String path) {
+	private List<Communication> readInputCommunications(String path) {
         List<Communication> communications = new ArrayList<Communication>();
 		
         try {
