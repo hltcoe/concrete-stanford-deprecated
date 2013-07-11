@@ -107,13 +107,7 @@ public class StanfordAgigaPipe {
 	}
     }
 
-    /**
-     * WARNING: This has the side effects of clearing sectionUUIDs and sectionBuffer.
-     * These two clears are imperative to this working correctly.
-     */
-    //TODO: Fill in (or something...)
-    public void annotate(Annotation annotation, UUID sectionSegmentationUUID,
-			 List<UUID> sectionUUIDs, StringBuilder sectionBuffer){
+    public AgigaDoc annotate(Annotation annotation){
 	System.out.println("ANNOTATING: " + annotation);
 	//For reference, from http://nlp.stanford.edu/software/corenlp.shtml
 	// // read some text in the text variable
@@ -124,10 +118,26 @@ public class StanfordAgigaPipe {
     
 	// // run all Annotators on this text
 	// pipeline.annotate(document);
+	return ...;
+    }
 
-	//FINALLY: clear the two lists
+    /**
+     * WARNING: This has the side effects of clearing sectionUUIDs and sectionBuffer.
+     * These two clears are imperative to this working correctly.
+     */
+    public Communication process(Communication commToAnnotate,
+				 Annotation annotation, UUID sectionSegmentationUUID,
+				 List<UUID> sentenceSegmentationUUIDs,
+				 List<UUID> sectionUUIDs, StringBuilder sectionBuffer){
+	AgigaDoc agigaDoc = annotate(annotation);
+	Communication newcomm = agiga2Concrete(commToAnnotate, agigaDoc, 
+					       sectionSegmentationUUID, sectionUUIDs,
+					       sentenceSegmentationUUIDs);
+	//FINALLY: clear the  lists
 	sectionBuffer = new StringBuilder();
 	sectionUUIDs.clear();
+	sentenceSegmentationUUIDs.clear();
+	return newcomm;
     }
 	
     private void RunPipelineOnCommunicationSectionsAndSentences(Communication comm) {
@@ -136,6 +146,8 @@ public class StanfordAgigaPipe {
 	if (comm.getSectionSegmentationCount() == 0)
 	    throw new IllegalArgumentException("Expecting Communication SectionSegmentations.");
 		
+	Communcation annotatedCommunication = comm;
+	
 	String commText = comm.getText();
 	List<Annotation> finishedAnnotations = new ArrayList<Annotation>();
 
@@ -146,6 +158,7 @@ public class StanfordAgigaPipe {
 	//TODO: get section and sentence segmentation info from metadata
 	List<Section> sections = comm.getSectionSegmentationList().get(0).getSectionList();
 	List<UUID> sectionUUIDs = new ArrayList<UUID>();
+	List<UUID> sentenceSegmentationUUIDs = new ArrayList<UUID>();
 	UUID sectionSegmentationUUID = comm.getSectionSegmentation(0).getUuid();
 	for (Section section : sections) {
 	    if ((section.hasKind() && section.getKind() != Section.Kind.PASSAGE) 
@@ -162,13 +175,16 @@ public class StanfordAgigaPipe {
 		section.getNumberCount()== 0 && 
 		sectionBuffer.length() > 0)){
 		//process previous section-aggregate
-		annotate(new Annotation(sectionBuffer.toString()),
-			 sectionSegmentationUUID,
-			 sectionUUIDs,
-			 sectionBuffer);
+		annotatedCommuncation = process(annotatedCommunication,
+						new Annotation(sectionBuffer.toString()),
+						sectionSegmentationUUID,
+						sectionUUIDs,
+						sentenceSegmentationUUIDs,
+						sectionBuffer);
 	    }
 	    List<Sentence> concreteSentences = section
 		.getSentenceSegmentationList().get(0).getSentenceList();	    
+	    sentenceSegmentationUUIDs.add(section.getSentenceSegmentation(0));
 	    for (Sentence sentence : concreteSentences) {	
 		if (!sentence.hasTextSpan())
 		    throw new IllegalArgumentException("Expecting TextSpan from Communication Sentence.");			
@@ -180,10 +196,12 @@ public class StanfordAgigaPipe {
 		prevSectionNumber = currSectionNumber;
 	}
 	if(sectionBuffer.length() > 0){	
-	    annotate(new Annotation(sectionBuffer.toString()),
-		     sectionSegmentationUUID,
-		     sectionUUIDs,
-		     sectionBuffer);
+	    annotatedCommunication = process(annotatedCommunication,
+					     new Annotation(sectionBuffer.toString()),
+					     sectionSegmentationUUID,
+					     sectionUUIDs,
+					     sentenceSegmentationUUIDs,
+					     sectionBuffer);
 	}
     }
 	
