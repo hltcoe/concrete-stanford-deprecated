@@ -115,9 +115,11 @@ public class StanfordAgigaPipe {
 				 List<UUID> sentenceSegmentationUUIDs,
 				 List<UUID> sectionUUIDs, StringBuilder sectionBuffer){
 	AgigaDocument agigaDoc = annotate(annotation);
-	Communication newcomm = agiga2Concrete(commToAnnotate, agigaDoc, 
-					       sectionSegmentationUUID, sectionUUIDs,
-					       sentenceSegmentationUUIDs);
+	//NOTE: The *actual* call needs to incorporate sentenceSegmentationUUIDs
+	Communication newcomm = 
+	    TravisPart.annotateCommunication(commToAnnotate, 
+					      sectionSegmentationUUID, 
+					      sectionUUIDs, agigaDoc);	
 	//FINALLY: clear the  lists
 	sectionBuffer = new StringBuilder();
 	sectionUUIDs.clear();
@@ -160,16 +162,16 @@ public class StanfordAgigaPipe {
 		section.getNumberCount()== 0 && 
 		sectionBuffer.length() > 0)){
 		//process previous section-aggregate
-		annotatedCommuncation = process(annotatedCommunication,
-						new Annotation(sectionBuffer.toString()),
-						sectionSegmentationUUID,
-						sectionUUIDs,
-						sentenceSegmentationUUIDs,
-						sectionBuffer);
+		annotatedCommunication = process(annotatedCommunication,
+						 new Annotation(sectionBuffer.toString()),
+						 sectionSegmentationUUID,
+						 sectionUUIDs,
+						 sentenceSegmentationUUIDs,
+						 sectionBuffer);
 	    }
 	    List<Sentence> concreteSentences = section
 		.getSentenceSegmentationList().get(0).getSentenceList();	    
-	    sentenceSegmentationUUIDs.add(section.getSentenceSegmentation(0));
+	    sentenceSegmentationUUIDs.add(section.getSentenceSegmentation(0).getUuid());
 	    for (Sentence sentence : concreteSentences) {	
 		if (!sentence.hasTextSpan())
 		    throw new IllegalArgumentException("Expecting TextSpan from Communication Sentence.");			
