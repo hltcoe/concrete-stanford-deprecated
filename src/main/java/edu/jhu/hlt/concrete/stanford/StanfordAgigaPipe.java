@@ -107,9 +107,27 @@ public class StanfordAgigaPipe {
 	}
     }
 
+    /**
+     * WARNING: This has the side effects of clearing sectionUUIDs and sectionBuffer.
+     * These two clears are imperative to this working correctly.
+     */
     //TODO: Fill in (or something...)
-    public void annotate(Annotation annotation){
+    public void annotate(Annotation annotation, UUID sectionSegmentationUUID,
+			 List<UUID> sectionUUIDs, StringBuilder sectionBuffer){
 	System.out.println("ANNOTATING: " + annotation);
+	//For reference, from http://nlp.stanford.edu/software/corenlp.shtml
+	// // read some text in the text variable
+	// String text = ... // Add your text here!
+    
+	//     // create an empty Annotation just with the given text
+	//     Annotation document = new Annotation(text);
+    
+	// // run all Annotators on this text
+	// pipeline.annotate(document);
+
+	//FINALLY: clear the two lists
+	sectionBuffer = new StringBuilder();
+	sectionUUIDs.clear();
     }
 	
     private void RunPipelineOnCommunicationSectionsAndSentences(Communication comm) {
@@ -126,8 +144,9 @@ public class StanfordAgigaPipe {
 	StringBuilder sectionBuffer = new StringBuilder();
 
 	//TODO: get section and sentence segmentation info from metadata
-	//TODO: aggregate over sections
 	List<Section> sections = comm.getSectionSegmentationList().get(0).getSectionList();
+	List<UUID> sectionUUIDs = new ArrayList<UUID>();
+	UUID sectionSegmentationUUID = comm.getSectionSegmentation(0).getUuid();
 	for (Section section : sections) {
 	    if ((section.hasKind() && section.getKind() != Section.Kind.PASSAGE) 
 		|| section.getSentenceSegmentationCount() == 0)
@@ -137,13 +156,16 @@ public class StanfordAgigaPipe {
 	    if(section.getNumberCount() > 0) {
 		currSectionNumber = section.getNumber(0);
 	    }
+	    sectionUUIDs.add(section.getUuid());
 	    if(currSectionNumber!=prevSectionNumber ||
 	       (aggregateSectionsByFirst && 
 		section.getNumberCount()== 0 && 
 		sectionBuffer.length() > 0)){
 		//process previous section-aggregate
-		annotate(new Annotation(sectionBuffer.toString()));
-		sectionBuffer = new StringBuilder();
+		annotate(new Annotation(sectionBuffer.toString()),
+			 sectionSegmentationUUID,
+			 sectionUUIDs,
+			 sectionBuffer);
 	    }
 	    List<Sentence> concreteSentences = section
 		.getSentenceSegmentationList().get(0).getSentenceList();	    
@@ -157,9 +179,11 @@ public class StanfordAgigaPipe {
 	    if(section.getNumberCount() > 0)
 		prevSectionNumber = currSectionNumber;
 	}
-	if(sectionBuffer.length() > 0){
-	    annotate(new Annotation(sectionBuffer.toString()));
-	    sectionBuffer = new StringBuilder();
+	if(sectionBuffer.length() > 0){	
+	    annotate(new Annotation(sectionBuffer.toString()),
+		     sectionSegmentationUUID,
+		     sectionUUIDs,
+		     sectionBuffer);
 	}
     }
 	
