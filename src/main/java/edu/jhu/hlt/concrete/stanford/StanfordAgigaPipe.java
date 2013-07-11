@@ -106,23 +106,26 @@ public class StanfordAgigaPipe {
      * WARNING: This has the side effects of clearing sectionUUIDs and sectionBuffer.
      * These two clears are imperative to this working correctly.
      */
-    public Communication process(Communication commToAnnotate,
-				 Annotation annotation, UUID sectionSegmentationUUID,
-				 List<UUID> sentenceSegmentationUUIDs,
-				 List<UUID> sectionUUIDs, StringBuilder sectionBuffer){
-	AgigaDocument agigaDoc = annotate(annotation);
-	//NOTE: The *actual* call needs to incorporate sentenceSegmentationUUIDs
-	AgigaConcreteAnnotator t = new AgigaConcreteAnnotator();
-	Communication newcomm = t.annotate(commToAnnotate, 
-					   sectionSegmentationUUID, 
-					   sectionUUIDs,
-					   sentenceSegmentationUUIDs,	// TODO
-					   agigaDoc);	
-	//FINALLY: clear the  lists
-	sectionBuffer = new StringBuilder();
-	sectionUUIDs.clear();
-	sentenceSegmentationUUIDs.clear();
-	return newcomm;
+    public Communication process(
+			Communication commToAnnotate,
+			Annotation annotation,
+			UUID sectionSegmentationUUID,
+			List<UUID> sectionUUIDs,
+			List<UUID> sentenceSegmentationUUIDs,
+			StringBuilder sectionBuffer) {
+		AgigaDocument agigaDoc = annotate(annotation);
+		//NOTE: The *actual* call needs to incorporate sentenceSegmentationUUIDs
+		AgigaConcreteAnnotator t = new AgigaConcreteAnnotator();
+		Communication newcomm = t.annotate(commToAnnotate, 
+						   sectionSegmentationUUID, 
+						   sectionUUIDs,
+						   sentenceSegmentationUUIDs,	// TODO
+						   agigaDoc);	
+		//FINALLY: clear the  lists
+		sectionBuffer = new StringBuilder();
+		sectionUUIDs.clear();
+		sentenceSegmentationUUIDs.clear();
+		return newcomm;
     }
 	
     private void RunPipelineOnCommunicationSectionsAndSentences(Communication comm) {

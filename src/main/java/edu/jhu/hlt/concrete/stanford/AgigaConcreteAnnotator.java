@@ -36,6 +36,10 @@ class AgigaConcreteAnnotator {
 	// need to reference this in building corefs
 	private List<Tokenization> tokenizations;
 
+	public static String uuidStr(UUID id) {
+		return id == null ? "null" : new java.util.UUID(id.getHigh(), id.getLow()).toString();
+	}
+
 	public synchronized Communication annotate(
 			Communication comm,
 			UUID sectionSegmentationId,
@@ -47,6 +51,17 @@ class AgigaConcreteAnnotator {
 			throw new IllegalArgumentException(
 				"sectionIds and sentenceSegIds need to have a 1-to-1 correspondence");
 		}
+		if(sectionIds.size() == 0) {
+			System.err.println("WARNING: calling annotate with no sections specified!");
+			return comm.toBuilder().build();
+		}
+
+		System.out.println("[AgigaConcreteAnnotator debug]");
+		System.out.println("sectionSegmentationId = " + uuidStr(sectionSegmentationId));
+		for(int i=0; i<sectionIds.size(); i++) {
+			System.out.printf("sectionId(%d)=%s sentenceSegIds(%d)=%s\n",
+				i, uuidStr(sectionIds.get(i)), i, uuidStr(sentenceSegIds.get(i)));
+		}
 
 		this.timestamp = Calendar.getInstance().getTimeInMillis() / 1000;
 		this.sectionSegmentationId = sectionSegmentationId;
@@ -56,9 +71,7 @@ class AgigaConcreteAnnotator {
 		this.agigaSentPtr = 0;
 		this.sectionPtr = 0;
 		this.tokenizations = new ArrayList<Tokenization>();
-		Communication r = f1(comm);
-		assert this.agigaSentPtr == sectionIds.size();
-		return r;
+		return f1(comm);
 	}
 	
 	// Communication
@@ -90,7 +103,9 @@ class AgigaConcreteAnnotator {
 
 		////////////////////////////////////////////////////////////////////////////
 		// corefs
-		assert this.tokenizations.size() == this.agigaDoc.getSents().size();
+		if(this.tokenizations.size() != this.agigaDoc.getSents().size()) {
+			throw new RuntimeException("#agigaSents=" + agigaDoc.getSents().size() + ", #tokenizations=" + tokenizations.size());
+		}
         EntityMentionSet.Builder emsb = EntityMentionSet.newBuilder()
             .setUuid(IdUtil.generateUUID())
             .setMetadata(metadata());
@@ -113,28 +128,34 @@ class AgigaConcreteAnnotator {
 		// make empty SS
 		SectionSegmentation.Builder newSS = in.toBuilder();
 		int n = newSS.getSectionCount();
+		assert n > 0 : "n="+n;
 		for(int i=n; i>0; i--)
 			newSS.removeSection(i-1);
 
 		// add them from source
-		Iterator<UUID> relevant = this.sectionIds.iterator();
-		UUID target = relevant.next();
-		for(this.sectionPtr=0; sectionPtr < n; sectionPtr++) {	// GLOBAL STATE
-			Section section = in.getSection(sectionPtr);
+		UUID target = this.sectionIds.get(this.sectionPtr);
+		System.out.println("[f2] target=" + uuidStr(target));
+		for(Section section : in.getSectionList()) {
+			System.out.printf("sectionPtr=%d sect.uuid=%s\n", sectionPtr, uuidStr(section.getUuid()));
 			if(section.getUuid().equals(target)) {
 				newSS.addSection(f3(section));
-				target = relevant.next();
+				this.sectionPtr++;
+				target = this.sectionPtr < this.sectionIds.size()
+					? this.sectionIds.get(this.sectionPtr)
+					: null;
+				System.out.println("[f2] target=" + uuidStr(target));
 			}
 			else newSS.addSection(section);
 		}
-		if(relevant.hasNext())
-			throw new RuntimeException("didn't find all Sections in SectionSegmentation");
+		if(this.sectionPtr != this.sectionIds.size())
+			throw new RuntimeException(String.format("found %d of %d sections", this.sectionPtr, this.sectionIds.size()));
 
 		return newSS.build();
 	}
 
 	// replace relevant SentenceSegmentation
 	private Section f3(Section in) {
+		System.out.println("f3");
 
 		// make empty Section
 		Section.Builder newS = in.toBuilder();
@@ -143,20 +164,28 @@ class AgigaConcreteAnnotator {
 
 		// add back to it
 		UUID target = this.sentenceSegIds.get(this.sectionPtr);	// GLOBAL STATE
+		int found = 0;
 		for(SentenceSegmentation ss : in.getSentenceSegmentationList()) {
-			newS.addSentenceSegmentation(
-				ss.getUuid().equals(target) ? f4(ss) : ss);
+			if(ss.getUuid().equals(target)) {
+				newS.addSentenceSegmentation(f4(ss));
+				found++;
+			}
+			else newS.addSentenceSegmentation(ss);
 		}
+		if(found != 1)
+			throw new RuntimeException("expected 1 sentence segmentation, found " + found);
 
 		return newS.build();
 	}
 
 	// replace all Sentences
 	private SentenceSegmentation f4(SentenceSegmentation in) {
+		System.out.println("f4");
 
 		// make empty SentenceSegmentation
 		SentenceSegmentation.Builder newSS = in.toBuilder();
 		int n = in.getSentenceCount();
+		assert n > 0 : "n=" + n;
 		for(int i=n; i>0; i--)
 			newSS.removeSentence(i-1);
 
@@ -169,6 +198,7 @@ class AgigaConcreteAnnotator {
 
 	// add a Tokenization
 	private Sentence f5(Sentence in) {
+		System.out.println("f5");
 		AgigaSentence asent = this.agigaDoc.getSents().get(agigaSentPtr++);
 		Tokenization tok = AgigaConverter.convertTokenization(asent);	// tokenization has all the annotations
 		this.tokenizations.add(tok);
