@@ -39,10 +39,7 @@ public class StanfordAgigaPipe {
 
     private String inputFile = null;
     private InMemoryAnnoPipeline pipeline;
-    
-    // private PTBTokenizerAnnotator ptbtokenizer = null;
-    // private ParserAnnotator parserAnnotator = null;
-    
+        
     public static void main(String[] args){
 	StanfordAgigaPipe sap = new StanfordAgigaPipe(args);
 	sap.go();
@@ -88,7 +85,6 @@ public class StanfordAgigaPipe {
     }
 
     public void go(){
-	//TODO: use aggregateSectionsByFirst to group properly
 	int num_communications_processed=0;
 	while(pbr.hasNext()){
 	    Communication comm = (Communication)(pbr.next());
@@ -117,11 +113,13 @@ public class StanfordAgigaPipe {
 	AgigaDocument agigaDoc = annotate(annotation);
 	//NOTE: The *actual* call needs to incorporate sentenceSegmentationUUIDs
 	AgigaConcreteAnnotator t = new AgigaConcreteAnnotator();
+	System.out.println(sectionUUIDs);
+	System.out.println(sentenceSegmentationUUIDs);
 	Communication newcomm = t.annotate(commToAnnotate, 
-					      sectionSegmentationUUID, 
-					      sectionUUIDs,
-						  sentenceSegmentationUUIDs,	// TODO
-						  agigaDoc);	
+					   sectionSegmentationUUID, 
+					   sectionUUIDs,
+					   sentenceSegmentationUUIDs,	// TODO
+					   agigaDoc);	
 	//FINALLY: clear the  lists
 	sectionBuffer = new StringBuilder();
 	sectionUUIDs.clear();
@@ -158,7 +156,6 @@ public class StanfordAgigaPipe {
 	    if(section.getNumberCount() > 0) {
 		currSectionNumber = section.getNumber(0);
 	    }
-	    sectionUUIDs.add(section.getUuid());
 	    if(currSectionNumber!=prevSectionNumber ||
 	       (aggregateSectionsByFirst && 
 		section.getNumberCount()== 0 && 
@@ -171,6 +168,7 @@ public class StanfordAgigaPipe {
 						 sentenceSegmentationUUIDs,
 						 sectionBuffer);
 	    }
+	    sectionUUIDs.add(section.getUuid());
 	    List<Sentence> concreteSentences = section
 		.getSentenceSegmentationList().get(0).getSentenceList();	    
 	    sentenceSegmentationUUIDs.add(section.getSentenceSegmentation(0).getUuid());
