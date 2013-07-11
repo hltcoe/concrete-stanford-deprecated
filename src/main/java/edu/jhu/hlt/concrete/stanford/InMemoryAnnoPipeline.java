@@ -10,11 +10,11 @@ import nu.xom.Attribute;
 import nu.xom.Document;
 import nu.xom.Element;
 import nu.xom.Elements;
+import nu.xom.Node;
 import nu.xom.Serializer;
 import edu.jhu.agiga.AgigaDocument;
 import edu.jhu.agiga.AgigaPrefs;
 import edu.jhu.agiga.BytesAgigaDocumentReader;
-import edu.jhu.hlt.concrete.Concrete.UUID;
 import edu.stanford.nlp.ling.CoreAnnotations;
 import edu.stanford.nlp.ling.CoreAnnotations.IndexAnnotation;
 import edu.stanford.nlp.ling.CoreAnnotations.SentenceIndexAnnotation;
@@ -41,12 +41,17 @@ public class InMemoryAnnoPipeline {
 
     private static final boolean debug = false;
     private static final boolean do_deps = true;
+    // Document counter.
+    private static int docCounter;
 
     private StanfordCoreNLP pipeline;
 
     public InMemoryAnnoPipeline(boolean onlyTokenize) {
+        docCounter = 0;
+        
         Properties props = new Properties();
         String annotatorList = "tokenize";
+        annotatorList += ", ssplit";
         if (!onlyTokenize)
             annotatorList += ", pos, lemma, parse, ner, dcoref";
         if (debug) {
@@ -61,13 +66,12 @@ public class InMemoryAnnoPipeline {
     }
     
     public static AgigaDocument annotate(StanfordCoreNLP pipeline, Annotation annotation) throws IOException {
-
         // Run all Annotators on this text
         pipeline.annotate(annotation);
 
         // Convert to an XML document.
         Document xmlDoc = stanfordToXML(pipeline, annotation);
-
+        
         // Convert the XML document to an AgigaDocument.
         AgigaDocument agigaDoc = xmlToAgigaDoc(xmlDoc);
 
@@ -87,9 +91,16 @@ public class InMemoryAnnoPipeline {
         ser.write(xmlDoc);
         ser.flush();
 
+        if (debug) {
+            System.out.println(baos.toString("UTF-8"));
+        }
+        
         AgigaPrefs agigaPrefs = new AgigaPrefs();
         agigaPrefs.setAll(true);
         BytesAgigaDocumentReader adr = new BytesAgigaDocumentReader(baos.toByteArray(), agigaPrefs);
+        if (!adr.hasNext()) {
+            throw new IllegalStateException("No documents found.");
+        }
         AgigaDocument agigaDoc = adr.next();
         if (adr.hasNext()) {
             throw new IllegalStateException("Multiple documents found.");
@@ -114,7 +125,21 @@ public class InMemoryAnnoPipeline {
 
         Element root = xmlDoc.getRootElement();
         Element docElem = (Element) root.getChild(0);
-
+        
+        // The document element will be a <document/> tag, but must be a <DOC/>.
+        docElem.setLocalName("DOC");
+        
+        // Add empty id and type attributes to the <DOC>.
+        docElem.addAttribute(new Attribute("id", Integer.toString(docCounter++)));
+        docElem.addAttribute(new Attribute("type", "NONE"));
+        
+        // Add an empty id attribute to each sentence. 
+        Elements sents = docElem.getFirstChildElement("sentences").getChildElements("sentence");
+        for (int i = 0; i < sents.size(); i++) {
+            Element thisSent = sents.get(i);
+            thisSent.addAttribute(new Attribute("id", Integer.toString(i)));
+        }
+        
         // rename coreference parent tag to "coreferences"
         Element corefElem = docElem.getFirstChildElement("coreference");
         // because StanfordCoreNLP.annotationToDoc() only appends the coref
@@ -149,21 +174,25 @@ public class InMemoryAnnoPipeline {
             Elements sentElems = docElem.getFirstChildElement("sentences").getChildElements("sentence");
             for (int i = 0; i < sentElems.size(); i++) {
                 Element thisSent = sentElems.get(i);
-                thisSent.addAttribute(new Attribute("id", "" + sentences.get(i).get(SentenceIndexAnnotation.class)));
                 Element basicDepElem = thisSent.getFirstChildElement("basic-dependencies");
+                basicDepElem.removeChildren();
                 SemanticGraph semGraph = sentences.get(i).get(
                         SemanticGraphCoreAnnotations.BasicDependenciesAnnotation.class);
                 addDependencyToXML(semGraph, basicDepElem);
+                
                 Element colDepElem = thisSent.getFirstChildElement("collapsed-dependencies");
+                colDepElem.removeChildren();
                 semGraph = sentences.get(i).get(SemanticGraphCoreAnnotations.CollapsedDependenciesAnnotation.class);
                 addDependencyToXML(semGraph, colDepElem);
+                
                 Element colCcDepElem = thisSent.getFirstChildElement("collapsed-ccprocessed-dependencies");
+                colCcDepElem.removeChildren();
                 semGraph = sentences.get(i).get(
                         SemanticGraphCoreAnnotations.CollapsedCCProcessedDependenciesAnnotation.class);
                 addDependencyToXML(semGraph, colCcDepElem);
             }
         }
-
+        
         return xmlDoc;
     }
 
