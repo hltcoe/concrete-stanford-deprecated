@@ -116,10 +116,12 @@ public class StanfordAgigaPipe {
 				 List<UUID> sectionUUIDs, StringBuilder sectionBuffer){
 	AgigaDocument agigaDoc = annotate(annotation);
 	//NOTE: The *actual* call needs to incorporate sentenceSegmentationUUIDs
-	Communication newcomm = 
-	    TravisPart.annotateCommunication(commToAnnotate, 
+	AgigaConcreteAnnotator t = new AgigaConcreteAnnotator();
+	Communication newcomm = t.annotate(commToAnnotate, 
 					      sectionSegmentationUUID, 
-					      sectionUUIDs, agigaDoc);	
+					      sectionUUIDs,
+						  sentenceSegmentationUUIDs,	// TODO
+						  agigaDoc);	
 	//FINALLY: clear the  lists
 	sectionBuffer = new StringBuilder();
 	sectionUUIDs.clear();

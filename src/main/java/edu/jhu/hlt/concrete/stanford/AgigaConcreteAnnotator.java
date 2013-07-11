@@ -15,7 +15,7 @@ import java.util.List;
  * and Stanford's annotations via an AgigaDocument,
  * add these annotations and return a new Communication
  */
-class TravisPart {
+class AgigaConcreteAnnotator {
 
 	private long timestamp;
 	private AnnotationMetadata metadata() {
