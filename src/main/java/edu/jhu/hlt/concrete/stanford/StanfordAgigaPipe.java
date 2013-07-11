@@ -113,8 +113,6 @@ public class StanfordAgigaPipe {
 	AgigaDocument agigaDoc = annotate(annotation);
 	//NOTE: The *actual* call needs to incorporate sentenceSegmentationUUIDs
 	AgigaConcreteAnnotator t = new AgigaConcreteAnnotator();
-	System.out.println(sectionUUIDs);
-	System.out.println(sentenceSegmentationUUIDs);
 	Communication newcomm = t.annotate(commToAnnotate, 
 					   sectionSegmentationUUID, 
 					   sectionUUIDs,
