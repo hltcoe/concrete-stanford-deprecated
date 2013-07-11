@@ -1,23 +1,23 @@
 package edu.jhu.hlt.concrete.stanford;
 
-import java.io.*;
-import java.util.List;
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.util.ArrayList;
-import edu.jhu.hlt.concrete.Concrete;
-import edu.jhu.hlt.concrete.Concrete.*;
-import edu.jhu.hlt.concrete.Concrete.Sentence;
-import edu.jhu.hlt.concrete.io.ProtocolBufferReader;
-import edu.jhu.hlt.concrete.io.ProtocolBufferWriter;
+import java.util.List;
 
-import edu.stanford.nlp.ling.CoreAnnotations.*;
-import edu.stanford.nlp.ling.CoreLabel;
+import edu.jhu.agiga.AgigaDocument;
+import edu.jhu.hlt.concrete.Concrete;
+import edu.jhu.hlt.concrete.Concrete.Communication;
+import edu.jhu.hlt.concrete.Concrete.Section;
+import edu.jhu.hlt.concrete.Concrete.Sentence;
+import edu.jhu.hlt.concrete.Concrete.UUID;
+import edu.jhu.hlt.concrete.io.ProtocolBufferReader;
 import edu.stanford.nlp.pipeline.Annotation;
 import edu.stanford.nlp.pipeline.StanfordCoreNLP;
-import edu.stanford.nlp.pipeline.ParserAnnotator;
-import edu.stanford.nlp.pipeline.PTBTokenizerAnnotator;
 import edu.stanford.nlp.trees.Tree;
-import edu.stanford.nlp.util.CoreMap;
-import edu.stanford.nlp.trees.TreeCoreAnnotations.TreeAnnotation;
 
 
 public class StanfordAgigaPipe {
@@ -38,11 +38,10 @@ public class StanfordAgigaPipe {
     private ProtocolBufferReader pbr;
 
     private String inputFile = null;
+    private InMemoryAnnoPipeline pipeline;
     
     // private PTBTokenizerAnnotator ptbtokenizer = null;
     // private ParserAnnotator parserAnnotator = null;
-
-    StanfordCoreNLP pipeline;
     
     public static void main(String[] args){
 	StanfordAgigaPipe sap = new StanfordAgigaPipe(args);
@@ -62,16 +61,7 @@ public class StanfordAgigaPipe {
 	    System.err.println(e.getMessage());
 	    System.exit(1);
 	}
-	    	
-	//This will be useful for the annotation bit. -Frank
-	// Properties props = new Properties();
-	// String annotatorList = "tokenize";
-	// if(!onlyTokenize) annotatorList += ", pos, lemma, parse, ner, dcoref";
-	// if (debug) {
-	//     System.err.println("Using annotators " + annotatorList);
-	// }
-	// props.put("annotators", annotatorList);
-	// pipeline = new StanfordCoreNLP(props);
+	pipeline = new InMemoryAnnoPipeline(onlyTokenize);
     }
 
     public void parseArgs(String[] args){
@@ -107,27 +97,34 @@ public class StanfordAgigaPipe {
 	}
     }
 
+    public AgigaDocument annotate(Annotation annotation) {
+        System.out.println("ANNOTATING: " + annotation);
+        try {
+            return pipeline.annotate(annotation);
+        } catch(IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     /**
      * WARNING: This has the side effects of clearing sectionUUIDs and sectionBuffer.
      * These two clears are imperative to this working correctly.
      */
-    //TODO: Fill in (or something...)
-    public void annotate(Annotation annotation, UUID sectionSegmentationUUID,
-			 List<UUID> sectionUUIDs, StringBuilder sectionBuffer){
-	System.out.println("ANNOTATING: " + annotation);
-	//For reference, from http://nlp.stanford.edu/software/corenlp.shtml
-	// // read some text in the text variable
-	// String text = ... // Add your text here!
-    
-	//     // create an empty Annotation just with the given text
-	//     Annotation document = new Annotation(text);
-    
-	// // run all Annotators on this text
-	// pipeline.annotate(document);
-
-	//FINALLY: clear the two lists
+    public Communication process(Communication commToAnnotate,
+				 Annotation annotation, UUID sectionSegmentationUUID,
+				 List<UUID> sentenceSegmentationUUIDs,
+				 List<UUID> sectionUUIDs, StringBuilder sectionBuffer){
+	AgigaDocument agigaDoc = annotate(annotation);
+	//NOTE: The *actual* call needs to incorporate sentenceSegmentationUUIDs
+	Communication newcomm = 
+	    TravisPart.annotateCommunication(commToAnnotate, 
+					      sectionSegmentationUUID, 
+					      sectionUUIDs, agigaDoc);	
+	//FINALLY: clear the  lists
 	sectionBuffer = new StringBuilder();
 	sectionUUIDs.clear();
+	sentenceSegmentationUUIDs.clear();
+	return newcomm;
     }
 	
     private void RunPipelineOnCommunicationSectionsAndSentences(Communication comm) {
@@ -136,6 +133,8 @@ public class StanfordAgigaPipe {
 	if (comm.getSectionSegmentationCount() == 0)
 	    throw new IllegalArgumentException("Expecting Communication SectionSegmentations.");
 		
+	Communication annotatedCommunication = comm;
+	
 	String commText = comm.getText();
 	List<Annotation> finishedAnnotations = new ArrayList<Annotation>();
 
@@ -146,6 +145,7 @@ public class StanfordAgigaPipe {
 	//TODO: get section and sentence segmentation info from metadata
 	List<Section> sections = comm.getSectionSegmentationList().get(0).getSectionList();
 	List<UUID> sectionUUIDs = new ArrayList<UUID>();
+	List<UUID> sentenceSegmentationUUIDs = new ArrayList<UUID>();
 	UUID sectionSegmentationUUID = comm.getSectionSegmentation(0).getUuid();
 	for (Section section : sections) {
 	    if ((section.hasKind() && section.getKind() != Section.Kind.PASSAGE) 
@@ -162,13 +162,16 @@ public class StanfordAgigaPipe {
 		section.getNumberCount()== 0 && 
 		sectionBuffer.length() > 0)){
 		//process previous section-aggregate
-		annotate(new Annotation(sectionBuffer.toString()),
-			 sectionSegmentationUUID,
-			 sectionUUIDs,
-			 sectionBuffer);
+		annotatedCommunication = process(annotatedCommunication,
+						 new Annotation(sectionBuffer.toString()),
+						 sectionSegmentationUUID,
+						 sectionUUIDs,
+						 sentenceSegmentationUUIDs,
+						 sectionBuffer);
 	    }
 	    List<Sentence> concreteSentences = section
 		.getSentenceSegmentationList().get(0).getSentenceList();	    
+	    sentenceSegmentationUUIDs.add(section.getSentenceSegmentation(0).getUuid());
 	    for (Sentence sentence : concreteSentences) {	
 		if (!sentence.hasTextSpan())
 		    throw new IllegalArgumentException("Expecting TextSpan from Communication Sentence.");			
@@ -180,10 +183,12 @@ public class StanfordAgigaPipe {
 		prevSectionNumber = currSectionNumber;
 	}
 	if(sectionBuffer.length() > 0){	
-	    annotate(new Annotation(sectionBuffer.toString()),
-		     sectionSegmentationUUID,
-		     sectionUUIDs,
-		     sectionBuffer);
+	    annotatedCommunication = process(annotatedCommunication,
+					     new Annotation(sectionBuffer.toString()),
+					     sectionSegmentationUUID,
+					     sectionUUIDs,
+					     sentenceSegmentationUUIDs,
+					     sectionBuffer);
 	}
     }
 	
