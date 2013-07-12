@@ -111,9 +111,11 @@ public class InMemoryAnnoPipeline {
         
         // Convert the XML document to an AgigaDocument.
         AgigaDocument agigaDoc = xmlToAgigaDoc(xmlDoc);
-	System.out.println("agigaDoc has " + agigaDoc.getSents().size() + " sentences");
-	System.out.println("annotation has " + annotation.get(SentencesAnnotation.class).size());
-	System.out.println("annotation has " + annotation.get(SentencesAnnotation.class));
+	if(debug){
+	    System.err.println("agigaDoc has " + agigaDoc.getSents().size() + " sentences");
+	    System.err.println("annotation has " + annotation.get(SentencesAnnotation.class).size());
+	    System.err.println("annotation has " + annotation.get(SentencesAnnotation.class));
+	}
         return agigaDoc;
     }
 

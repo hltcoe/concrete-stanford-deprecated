@@ -15,6 +15,7 @@ import edu.jhu.hlt.concrete.Concrete.Section;
 import edu.jhu.hlt.concrete.Concrete.Sentence;
 import edu.jhu.hlt.concrete.Concrete.UUID;
 import edu.jhu.hlt.concrete.io.ProtocolBufferReader;
+import edu.jhu.hlt.concrete.io.ProtocolBufferWriter;
 import edu.stanford.nlp.ling.CoreAnnotations;
 import edu.stanford.nlp.ling.CoreAnnotations.*;
 import edu.stanford.nlp.ling.CoreLabel;
@@ -26,11 +27,11 @@ import edu.stanford.nlp.util.CoreMap;
 
 
 public class StanfordAgigaPipe {
-    static final String usage = "You must specify an input path: java edu.jhu.hlt.concrete.stanford.StanfordAgigaPipe --input path/to/inputfile\n"
+    static final String usage = "You must specify an input path: java edu.jhu.hlt.concrete.stanford.StanfordAgigaPipe --input path/to/input/file --output path/to/output/file\n"
 	+ "  Optional arguments: \n"
 	+ "       --only-tokenize t|f\n\t\ttokenize and serialize (no parsing/CoreNLP) (default: f)\n"
-	+ "       --aggregate-by-first-section-number t|f\n\t\ttaggregate by lead section number (default: f)\n"
-	+ "       --debug\n\t\t to print debugging messages (default: false)\n";
+	+ "       --aggregate-by-first-section-number t|f\n\t\taggregate by lead section number (default: f)\n"
+	+ "       --debug\n\t\tto print debugging messages (default: false)\n";
 	
     private boolean debug = false;
     private int sentenceCount = 1; // for flat files, no document structure
@@ -41,18 +42,20 @@ public class StanfordAgigaPipe {
     private boolean parse = false;
 
     private ProtocolBufferReader pbr;
+    private ProtocolBufferWriter pbw;
 
     private String inputFile = null;
+    private String outputFile = null;
     private InMemoryAnnoPipeline pipeline;
         
-    public static void main(String[] args){
+    public static void main(String[] args) throws IOException{
 	StanfordAgigaPipe sap = new StanfordAgigaPipe(args);
 	sap.go();
     }
 
     public StanfordAgigaPipe(String[] args) {
 	parseArgs(args);
-	if(inputFile == null){
+	if(inputFile == null || outputFile==null){
 	    System.err.println(usage);
 	    System.exit(1);
 	}
@@ -63,6 +66,13 @@ public class StanfordAgigaPipe {
 	    System.err.println(e.getMessage());
 	    System.exit(1);
 	}
+	try {
+	    pbw = new ProtocolBufferWriter(outputFile);
+	} catch(Exception e){
+	    System.err.println("Trouble opening new output protobuf file " + outputFile);
+	    System.err.println(e.getMessage());
+	    System.exit(1);
+	} 
 	pipeline = new InMemoryAnnoPipeline(onlyTokenize);
     }
 
@@ -76,6 +86,7 @@ public class StanfordAgigaPipe {
 		    aggregateSectionsByFirst = args[++i].equals("t");
 		else if (args[i].equals("--debug")) debug = true;
 		else if (args[i].equals("--input")) inputFile = args[++i];
+		else if (args[i].equals("--output")) outputFile = args[++i];
 		else{
 		    System.err.println("Invalid option: " + args[i]);
 		    System.err.println(usage);
@@ -89,11 +100,14 @@ public class StanfordAgigaPipe {
 	}
     }
 
-    public void go(){
+    public void go() throws IOException{
 	int num_communications_processed=0;
 	while(pbr.hasNext()){
 	    Communication comm = (Communication)(pbr.next());
-	    runPipelineOnCommunicationSectionsAndSentences(comm);
+	    Communication annotatedComm = runPipelineOnCommunicationSectionsAndSentences(comm);
+	    if(debug) 
+		System.err.println(annotatedComm);
+	    pbw.write(annotatedComm);
 	    num_communications_processed++;
 	}
     }
@@ -121,11 +135,13 @@ public class StanfordAgigaPipe {
 	    System.err.println("For communication " + commToAnnotate +", no sentences found on this invocation");
 	    return commToAnnotate;
 	}
-	System.err.println("CALL TO PROCESS");
-	System.out.println("sectionBuffer.size = " + sectionBuffer.size());
+	if(debug){
+	    System.err.println("CALL TO PROCESS");
+	    System.err.println("sectionBuffer.size = " + sectionBuffer.size());
+	}
 	Annotation annotation = sentencesToDocument(sectionBuffer);
 	AgigaDocument agigaDoc = annotate(annotation);
-	AgigaConcreteAnnotator t = new AgigaConcreteAnnotator();
+	AgigaConcreteAnnotator t = new AgigaConcreteAnnotator(debug);
 	Communication newcomm = t.annotate(commToAnnotate, 
 					   sectionSegmentationUUID, 
 					   sectionUUIDs,
@@ -138,7 +154,7 @@ public class StanfordAgigaPipe {
 	return newcomm;
     }
 
-    private void runPipelineOnCommunicationSectionsAndSentences(Communication comm) {
+    private Communication runPipelineOnCommunicationSectionsAndSentences(Communication comm) {
 	if (!comm.hasText())
 	    throw new IllegalArgumentException("Expecting Communication Text.");
 	if (comm.getSectionSegmentationCount() == 0)
@@ -203,6 +219,7 @@ public class StanfordAgigaPipe {
 					     sentenceSegmentationUUIDs,
 					     sectionBuffer);
 	}
+	return annotatedCommunication;
     }
 	
     private List<Communication> readInputCommunications(String path) {
