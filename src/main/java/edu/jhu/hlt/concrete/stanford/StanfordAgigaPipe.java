@@ -15,9 +15,14 @@ import edu.jhu.hlt.concrete.Concrete.Section;
 import edu.jhu.hlt.concrete.Concrete.Sentence;
 import edu.jhu.hlt.concrete.Concrete.UUID;
 import edu.jhu.hlt.concrete.io.ProtocolBufferReader;
+import edu.stanford.nlp.ling.CoreAnnotations;
+import edu.stanford.nlp.ling.CoreAnnotations.*;
+import edu.stanford.nlp.ling.CoreLabel;
 import edu.stanford.nlp.pipeline.Annotation;
 import edu.stanford.nlp.pipeline.StanfordCoreNLP;
 import edu.stanford.nlp.trees.Tree;
+import edu.stanford.nlp.trees.TreeCoreAnnotations.TreeAnnotation;
+import edu.stanford.nlp.util.CoreMap;
 
 
 public class StanfordAgigaPipe {
@@ -88,14 +93,13 @@ public class StanfordAgigaPipe {
 	int num_communications_processed=0;
 	while(pbr.hasNext()){
 	    Communication comm = (Communication)(pbr.next());
-	    RunPipelineOnCommunicationSectionsAndSentences(comm);
+	    runPipelineOnCommunicationSectionsAndSentences(comm);
 	    num_communications_processed++;
 	}
     }
 
     public AgigaDocument annotate(Annotation annotation) {
-        System.out.println("ANNOTATING: " + annotation);
-        try {
+	try {
             return pipeline.annotate(annotation);
         } catch(IOException e) {
             throw new RuntimeException(e);
@@ -107,28 +111,34 @@ public class StanfordAgigaPipe {
      * These two clears are imperative to this working correctly.
      */
     public Communication process(
-			Communication commToAnnotate,
-			Annotation annotation,
-			UUID sectionSegmentationUUID,
-			List<UUID> sectionUUIDs,
-			List<UUID> sentenceSegmentationUUIDs,
-			StringBuilder sectionBuffer) {
-		AgigaDocument agigaDoc = annotate(annotation);
-		//NOTE: The *actual* call needs to incorporate sentenceSegmentationUUIDs
-		AgigaConcreteAnnotator t = new AgigaConcreteAnnotator();
-		Communication newcomm = t.annotate(commToAnnotate, 
-						   sectionSegmentationUUID, 
-						   sectionUUIDs,
-						   sentenceSegmentationUUIDs,	// TODO
-						   agigaDoc);	
-		//FINALLY: clear the  lists
-		sectionBuffer = new StringBuilder();
-		sectionUUIDs.clear();
-		sentenceSegmentationUUIDs.clear();
-		return newcomm;
+				 Communication commToAnnotate,
+				 UUID sectionSegmentationUUID,
+				 List<UUID> sectionUUIDs,
+				 List<UUID> sentenceSegmentationUUIDs,
+				 List<CoreMap> sectionBuffer) {
+	//first cat all CoreMap objects in sectionBuffer into one
+	if(sectionBuffer==null || sectionBuffer.size()==0){
+	    System.err.println("For communication " + commToAnnotate +", no sentences found on this invocation");
+	    return commToAnnotate;
+	}
+	System.err.println("CALL TO PROCESS");
+	System.out.println("sectionBuffer.size = " + sectionBuffer.size());
+	Annotation annotation = sentencesToDocument(sectionBuffer);
+	AgigaDocument agigaDoc = annotate(annotation);
+	AgigaConcreteAnnotator t = new AgigaConcreteAnnotator();
+	Communication newcomm = t.annotate(commToAnnotate, 
+					   sectionSegmentationUUID, 
+					   sectionUUIDs,
+					   sentenceSegmentationUUIDs,
+					   agigaDoc);	
+	//FINALLY: clear the  lists
+	sectionBuffer.clear(); 
+	sectionUUIDs.clear();
+	sentenceSegmentationUUIDs.clear();
+	return newcomm;
     }
-	
-    private void RunPipelineOnCommunicationSectionsAndSentences(Communication comm) {
+
+    private void runPipelineOnCommunicationSectionsAndSentences(Communication comm) {
 	if (!comm.hasText())
 	    throw new IllegalArgumentException("Expecting Communication Text.");
 	if (comm.getSectionSegmentationCount() == 0)
@@ -138,10 +148,11 @@ public class StanfordAgigaPipe {
 	
 	String commText = comm.getText();
 	List<Annotation> finishedAnnotations = new ArrayList<Annotation>();
+	sentenceCount = 1;
 
 	int prevSectionNumber = -1;
 	int currSectionNumber = -1;
-	StringBuilder sectionBuffer = new StringBuilder();
+	List<CoreMap> sectionBuffer = new ArrayList<CoreMap>();
 
 	//TODO: get section and sentence segmentation info from metadata
 	List<Section> sections = comm.getSectionSegmentationList().get(0).getSectionList();
@@ -160,10 +171,9 @@ public class StanfordAgigaPipe {
 	    if(currSectionNumber!=prevSectionNumber ||
 	       (aggregateSectionsByFirst && 
 		section.getNumberCount()== 0 && 
-		sectionBuffer.length() > 0)){
+		sectionBuffer.size() > 0)){
 		//process previous section-aggregate
 		annotatedCommunication = process(annotatedCommunication,
-						 new Annotation(sectionBuffer.toString()),
 						 sectionSegmentationUUID,
 						 sectionUUIDs,
 						 sentenceSegmentationUUIDs,
@@ -178,14 +188,16 @@ public class StanfordAgigaPipe {
 		    throw new IllegalArgumentException("Expecting TextSpan from Communication Sentence.");			
 		String sText = commText.substring(sentence.getTextSpan().getStart(), 
 						  sentence.getTextSpan().getEnd());
-		if(sText!=null) sectionBuffer.append(sText);
+		if(sText!=null) {
+		    Annotation initialSentenceAnnotations = pipeline.annotateSentence(sText);
+		    sectionBuffer.add(initialSentenceAnnotations);
+		}
 	    }
 	    if(section.getNumberCount() > 0)
 		prevSectionNumber = currSectionNumber;
 	}
-	if(sectionBuffer.length() > 0){	
+	if(sectionBuffer.size() > 0){	
 	    annotatedCommunication = process(annotatedCommunication,
-					     new Annotation(sectionBuffer.toString()),
 					     sectionSegmentationUUID,
 					     sectionUUIDs,
 					     sentenceSegmentationUUIDs,
@@ -224,6 +236,66 @@ public class StanfordAgigaPipe {
 	}
 	
     }
+
+    /**
+     * convert a list of sentences into a document Annotation<br/>
+     * If given no sentences, returns null.
+     *
+     * (Originally from anno-pipeline)
+     * 
+     * @param sentences
+     * @return
+     */
+    public Annotation sentencesToDocument(List<CoreMap> sentences) {
+	if (sentences.size() == 0) {
+	    if (debug)
+		System.err.println("0 sentences");
+	    return null;
+	}
+	String docText = null;
+	Annotation document = new Annotation(docText);
+	document.set(SentencesAnnotation.class, sentences);
+	List<CoreLabel> docTokens = new ArrayList<CoreLabel>();
+	int sentIndex = sentenceCount;
+	int tokenBegin = 0;
+	for (CoreMap sentAnno : sentences) {
+	    if (sentAnno == null) 
+		continue;
+	    List<CoreLabel> sentTokens = sentAnno.get(TokensAnnotation.class);
+	    docTokens.addAll(sentTokens);
+	    int tokenEnd = tokenBegin + sentTokens.size();
+	    sentAnno.set(TokenBeginAnnotation.class, tokenBegin);
+	    sentAnno.set(TokenEndAnnotation.class, tokenEnd);
+	    sentAnno.set(SentenceIndexAnnotation.class, sentIndex);
+	    sentIndex++;
+	    sentenceCount++;
+	    tokenBegin = tokenEnd;
+	}
+	document.set(TokensAnnotation.class, docTokens);
+	int i = 0;
+	for (CoreLabel token : docTokens) {
+	    String tokenText = token.get(TextAnnotation.class);
+	    token.set(CharacterOffsetBeginAnnotation.class, i);
+	    i += tokenText.length();
+	    token.set(CharacterOffsetEndAnnotation.class, i);
+	    i++; // Skip space
+	}
+	for (CoreMap sentenceAnnotation : sentences) {
+	    if (sentenceAnnotation == null) {
+		continue;
+	    }
+	    List<CoreLabel> sentenceTokens = sentenceAnnotation
+		.get(TokensAnnotation.class);
+	    sentenceAnnotation.set(CharacterOffsetBeginAnnotation.class,
+				   sentenceTokens.get(0).get(
+							     CharacterOffsetBeginAnnotation.class));
+	    sentenceAnnotation.set(CharacterOffsetEndAnnotation.class,
+				   sentenceTokens.get(sentenceTokens.size() - 1).get(
+										     CharacterOffsetEndAnnotation.class));
+	}
+	return document;
+    }
+
 	
     /* This method contains code for transforming lists of Stanford's CoreLabels into 
      * Concrete tokenizations.  We might want to use it if we get rid of agiga. 
@@ -306,7 +378,7 @@ public class StanfordAgigaPipe {
     // 	return tokenization;
     // }
 
-        /**
+    /**
      * convert a tree t to its token representation
      * 
      * @param t

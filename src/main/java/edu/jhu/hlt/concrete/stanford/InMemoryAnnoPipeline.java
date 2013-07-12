@@ -17,16 +17,25 @@ import edu.jhu.agiga.AgigaPrefs;
 import edu.jhu.agiga.BytesAgigaDocumentReader;
 import edu.stanford.nlp.ling.CoreAnnotations;
 import edu.stanford.nlp.ling.CoreAnnotations.IndexAnnotation;
+import edu.stanford.nlp.ling.CoreAnnotations.PartOfSpeechAnnotation;
 import edu.stanford.nlp.ling.CoreAnnotations.SentenceIndexAnnotation;
 import edu.stanford.nlp.ling.CoreAnnotations.SentencesAnnotation;
 import edu.stanford.nlp.pipeline.Annotation;
+import edu.stanford.nlp.pipeline.Annotator;
 import edu.stanford.nlp.pipeline.ParserAnnotatorUtils;
+import edu.stanford.nlp.pipeline.POSTaggerAnnotator;
+import edu.stanford.nlp.pipeline.PTBTokenizerAnnotator;
 import edu.stanford.nlp.pipeline.StanfordCoreNLP;
+import edu.stanford.nlp.pipeline.WordsToSentencesAnnotator;
+import edu.stanford.nlp.trees.semgraph.SemanticGraph;
+import edu.stanford.nlp.trees.semgraph.SemanticGraphCoreAnnotations;
+import edu.stanford.nlp.trees.semgraph.SemanticGraphEdge;
 import edu.stanford.nlp.trees.TreeCoreAnnotations.TreeAnnotation;
 import edu.stanford.nlp.trees.semgraph.SemanticGraph;
 import edu.stanford.nlp.trees.semgraph.SemanticGraphCoreAnnotations;
 import edu.stanford.nlp.trees.semgraph.SemanticGraphEdge;
 import edu.stanford.nlp.util.CoreMap;
+import edu.stanford.nlp.trees.semgraph.SemanticGraphCoreAnnotations.CollapsedDependenciesAnnotation;
 
 /**
  * An in-memory version of the Annotated Gigaword pipeline, using only the
@@ -44,14 +53,26 @@ public class InMemoryAnnoPipeline {
     // Document counter.
     private static int docCounter;
 
+    private PTBTokenizerAnnotator ptbTokenizer;
+    //private POSTaggerAnnotator posTagger;
+    private WordsToSentencesAnnotator words2SentencesAnnotator;
+    //NOTE: we're only using this for its annotationToDoc method
     private StanfordCoreNLP pipeline;
+
+    //    private static String[] sentenceLevelStages = {"pos", "lemma", "parse"};
+    private static String[] documentLevelStages = {"pos", "lemma", "parse", "ner", "dcoref"};
+
 
     public InMemoryAnnoPipeline(boolean onlyTokenize) {
         docCounter = 0;
-        
+
+        ptbTokenizer = new PTBTokenizerAnnotator();
+	//posTagger = new POSTaggerAnnotator();
+	words2SentencesAnnotator = new WordsToSentencesAnnotator();
+	words2SentencesAnnotator.setOneSentence(true);
+
         Properties props = new Properties();
-        String annotatorList = "tokenize";
-        annotatorList += ", ssplit";
+        String annotatorList = "tokenize, ssplit";
         if (!onlyTokenize)
             annotatorList += ", pos, lemma, parse, ner, dcoref";
         if (debug) {
@@ -60,23 +81,55 @@ public class InMemoryAnnoPipeline {
         props.put("annotators", annotatorList);
         pipeline = new StanfordCoreNLP(props);
     }
+
+    // tokenize and "split" 
+    public Annotation annotateSentence(String text){
+	Annotation sentence = new Annotation(text);
+	ptbTokenizer.annotate(sentence);
+	words2SentencesAnnotator.annotate(sentence);
+	return sentence;
+    }
     
     public AgigaDocument annotate(Annotation annotation) throws IOException {
         return annotate(pipeline, annotation);
     }
     
     public static AgigaDocument annotate(StanfordCoreNLP pipeline, Annotation annotation) throws IOException {
-        // Run all Annotators on this text
-        pipeline.annotate(annotation);
-
+	for(String stage : documentLevelStages){
+	    if(stage.equals("dcoref")){
+		fixNullDependencyGraphs(annotation);
+	    }
+	    try{
+		(StanfordCoreNLP.getExistingAnnotator(stage)).annotate(annotation);
+	    } catch(Exception e){
+		System.err.println("Error annotating " + stage);
+	    }
+	}
+	
         // Convert to an XML document.
         Document xmlDoc = stanfordToXML(pipeline, annotation);
         
         // Convert the XML document to an AgigaDocument.
         AgigaDocument agigaDoc = xmlToAgigaDoc(xmlDoc);
-
+	System.out.println("agigaDoc has " + agigaDoc.getSents().size() + " sentences");
+	System.out.println("annotation has " + annotation.get(SentencesAnnotation.class).size());
+	System.out.println("annotation has " + annotation.get(SentencesAnnotation.class));
         return agigaDoc;
     }
+
+    /**
+     * sentences with no dependency structure have null values for the various
+     * dependency annotations. make sure these are empty dependencies instead
+     * to prevent coref-resolution from dying
+     **/
+    public static void fixNullDependencyGraphs(Annotation anno) {
+        for (CoreMap sent : anno.get(SentencesAnnotation.class)) {
+            if (sent.get(CollapsedDependenciesAnnotation.class) == null) {
+                sent.set(CollapsedDependenciesAnnotation.class, new SemanticGraph());
+            }
+	}
+    }
+
 
     /** This method assumes only one <DOC/> is contained in the xmlDoc. */
     private static AgigaDocument xmlToAgigaDoc(Document xmlDoc) throws UnsupportedEncodingException, IOException {
@@ -242,6 +295,15 @@ public class InMemoryAnnoPipeline {
                 parentElem.appendChild(depElem);
             }
         }
+    }
+
+    // return various annotators from the CoreNLP tools
+    public Annotator nerAnnotator() {
+	return StanfordCoreNLP.getExistingAnnotator("ner");
+    }
+
+    public Annotator dcorefAnnotator() {
+	return StanfordCoreNLP.getExistingAnnotator("dcoref");
     }
 
 }
